@@ -1,0 +1,1287 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JWT 工具 · access-data S Channel</title>
+<script>
+  // 在样式解析前定下主题，避免首屏闪烁；与主脚本共用同一存储键。
+  (function () {
+    try {
+      var mode = localStorage.getItem('jwt-tool.theme.v1');
+      var prefersDark = window.matchMedia
+        && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      var dark = mode === 'dark' || (mode !== 'light' && prefersDark);
+      document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+    } catch (e) { /* 存储不可用时按系统默认 */ }
+  })();
+</script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :root {
+    --bg: #0f1117;
+    --panel: #161a23;
+    --border: #262d3a;
+    --input-border: #2b3342;
+    --text: #e6e9ef;
+    --muted: #8b95a7;
+    --dim: #6f7a8d;
+    --accent: #4c8dff;
+    --ok: #3ddc97;
+    --err: #ff6b6b;
+    --warn: #ffc857;
+    --mono: "Cascadia Code", "JetBrains Mono", Consolas, "Courier New", monospace;
+  }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 30px 20px 90px; }
+
+  header h1 { font-size: 20px; margin: 0 0 5px; letter-spacing: .2px; }
+  header .sub { margin: 0; color: var(--muted); font-size: 13px; }
+
+  .banner {
+    margin-top: 16px; padding: 12px 14px; border-radius: 8px;
+    background: rgba(255,200,87,.08); border: 1px solid rgba(255,200,87,.35);
+    color: var(--warn); font-size: 13px;
+  }
+  .banner code { font-family: var(--mono); background: rgba(255,255,255,.06); padding: 1px 5px; border-radius: 4px; }
+
+  .tabs { display: flex; gap: 4px; margin: 24px 0 18px; border-bottom: 1px solid var(--border); }
+  .tab {
+    appearance: none; background: none; border: 0; border-bottom: 2px solid transparent;
+    color: var(--muted); padding: 10px 18px; font: inherit; font-size: 14px;
+    cursor: pointer; margin-bottom: -1px; transition: color .15s;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .panel { display: none; }
+  .panel.active { display: grid; gap: 16px; }
+  .panel.split { grid-template-columns: 1fr 1fr; align-items: start; }
+  .col { display: grid; gap: 16px; }
+  .split2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 880px) {
+    .panel.split, .split2 { grid-template-columns: 1fr; }
+  }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px 18px;
+  }
+  .card h2 {
+    font-size: 13px; font-weight: 600; margin: 0 0 12px;
+    display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px;
+  }
+  .card h2 .hint { font-weight: 400; color: var(--dim); font-size: 12px; }
+  .req { color: var(--err); }
+
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 560px) { .row2 { grid-template-columns: 1fr; } }
+
+  input, textarea {
+    width: 100%; margin-top: 6px; background: var(--bg); color: var(--text);
+    border: 1px solid var(--input-border); border-radius: 6px; padding: 9px 11px;
+    font-family: var(--mono); font-size: 13px;
+  }
+  input:focus, textarea:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(76,141,255,.15);
+  }
+  textarea { resize: vertical; line-height: 1.5; word-break: break-all; }
+  textarea[readonly] { color: #a9b4c6; }
+
+  /* 拖拽文件到密钥输入框的反馈 */
+  textarea.dropping {
+    border-color: var(--accent);
+    background: rgba(76,141,255,.10);
+    box-shadow: 0 0 0 3px rgba(76,141,255,.18);
+  }
+  textarea.dropped { border-color: var(--ok); }
+  textarea.drop-error { border-color: var(--err); }
+
+  .note { margin: 2px 0 0; font-size: 12px; color: var(--dim); }
+
+  .preview-label {
+    margin: 12px 0 6px; font-size: 12px; color: var(--dim);
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  }
+  pre.pem, pre.json {
+    margin: 0; padding: 10px 12px; background: var(--bg);
+    border: 1px solid var(--input-border); border-radius: 6px;
+    font-family: var(--mono); font-size: 12px; line-height: 1.6;
+    overflow: auto; max-height: 220px; white-space: pre-wrap; word-break: break-all;
+  }
+  pre.pem { color: #9ecbff; }
+  pre.pem.err { color: var(--err); border-color: rgba(255,107,107,.4); }
+  pre.json { color: #cbd5e1; }
+
+  .j-key { color: #7dd3fc; }
+  .j-str { color: #86efac; }
+  .j-num { color: #fbbf24; }
+  .j-bool { color: #c084fc; }
+  .j-null { color: #94a3b8; }
+
+  button {
+    appearance: none; font: inherit; cursor: pointer; border-radius: 6px;
+    padding: 9px 18px; font-size: 13px; font-weight: 500; transition: all .15s;
+  }
+  button.primary {
+    background: var(--accent); border: 1px solid var(--accent); color: #fff;
+  }
+  button.primary:hover { background: #3d7ded; border-color: #3d7ded; }
+  button.primary:active { transform: translateY(1px); }
+  button.ghost {
+    background: transparent; border: 1px solid var(--input-border); color: var(--muted);
+  }
+  button.ghost:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-row { display: flex; align-items: center; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+
+  .status { font-size: 12px; color: var(--muted); word-break: break-all; }
+  .status.ok { color: var(--ok); }
+  .status.err { color: var(--err); }
+  #issueStatus { margin-top: 10px; }
+
+  .verdict {
+    display: flex; align-items: center; gap: 10px; margin-top: 14px;
+    padding: 12px 14px; border-radius: 8px; font-size: 14px; font-weight: 600;
+  }
+  .verdict.ok { background: rgba(61,220,151,.10); border: 1px solid rgba(61,220,151,.35); color: var(--ok); }
+  .verdict.err { background: rgba(255,107,107,.10); border: 1px solid rgba(255,107,107,.35); color: var(--err); }
+  .verdict .detail { font-weight: 400; font-size: 12px; opacity: .85; }
+
+  .meta { margin-top: 10px; font-size: 12px; color: var(--dim); display: grid; gap: 4px; }
+  .meta .k { color: var(--muted); }
+  .meta .bad { color: var(--err); }
+  .meta .good { color: var(--ok); }
+
+  /* ── 顶栏与主题切换 ── */
+  .header-row {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    gap: 16px; flex-wrap: wrap;
+  }
+  .theme-switch {
+    display: flex; gap: 2px; padding: 3px; flex: none;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  }
+  .theme-switch button {
+    padding: 6px 12px; font-size: 12px; font-weight: 400;
+    border: 0; background: transparent; color: var(--muted); border-radius: 6px;
+  }
+  .theme-switch button:hover { color: var(--text); background: transparent; }
+  .theme-switch button.active { background: var(--accent); color: #fff; }
+  .theme-switch button.active:hover { color: #fff; }
+
+  /* ── 浅色主题 ── */
+  :root[data-theme="light"] {
+    --bg: #f4f6f9;
+    --panel: #ffffff;
+    --border: #e3e8ef;
+    --input-border: #d5dce6;
+    --text: #1b2230;
+    --muted: #5f6b7c;
+    --dim: #7b8798;
+    --accent: #2f6fe4;
+    --ok: #067647;
+    --err: #d92d20;
+    --warn: #b54708;
+  }
+  :root[data-theme="light"] textarea[readonly] { color: #4a5568; }
+  :root[data-theme="light"] pre.pem { color: #1a5fb4; }
+  :root[data-theme="light"] pre.json { color: #334155; }
+  :root[data-theme="light"] .j-key { color: #0b6bcb; }
+  :root[data-theme="light"] .j-str { color: #1a7f37; }
+  :root[data-theme="light"] .j-num { color: #9a6700; }
+  :root[data-theme="light"] .j-bool { color: #8250df; }
+  :root[data-theme="light"] .j-null { color: #6e7781; }
+  :root[data-theme="light"] .banner {
+    background: #fff8e6; border-color: #f0d9a8; color: #8a5a00;
+  }
+  :root[data-theme="light"] .banner code { background: rgba(138,90,0,.08); }
+  :root[data-theme="light"] .verdict.ok {
+    background: rgba(6,118,71,.07); border-color: rgba(6,118,71,.28);
+  }
+  :root[data-theme="light"] .verdict.err {
+    background: rgba(217,45,32,.06); border-color: rgba(217,45,32,.25);
+  }
+  :root[data-theme="light"] button.primary:hover { background: #2459bd; border-color: #2459bd; }
+  :root[data-theme="light"] input:focus,
+  :root[data-theme="light"] textarea:focus { box-shadow: 0 0 0 3px rgba(47,111,228,.15); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="header-row">
+    <div>
+      <h1>JWT 工具</h1>
+      <p class="sub">access-data S Channel · RS256 · 密钥与 Token 全程只在浏览器本地运算，不上传任何数据</p>
+    </div>
+    <div class="theme-switch" role="group" aria-label="主题模式">
+      <button type="button" data-theme-mode="dark">深色</button>
+      <button type="button" data-theme-mode="auto">跟随系统</button>
+      <button type="button" data-theme-mode="light">浅色</button>
+    </div>
+  </header>
+
+  <div id="envWarn" class="banner" hidden></div>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="issue" type="button">颁发 JWT</button>
+    <button class="tab" data-tab="verify" type="button">验证 JWT</button>
+    <button class="tab" data-tab="generate" type="button">生成密钥</button>
+  </nav>
+
+  <main>
+    <!-- ══════════════ 颁发 ══════════════ -->
+    <section id="panel-issue" class="panel split active">
+      <div class="col">
+        <div class="card">
+          <h2>Token 声明</h2>
+          <div class="row2">
+            <label>调用方 service name（client_id）<span class="req">*</span>
+              <input id="issueClientId" placeholder="research-content" spellcheck="false" autocomplete="off">
+            </label>
+            <label>被调用方 service name（iss / aud）<span class="req">*</span>
+              <input id="issueAudience" placeholder="access-data" spellcheck="false" autocomplete="off">
+            </label>
+          </div>
+          <div class="row2">
+            <label>Channel ID（channel_id / Q-Client）
+              <input id="issueChannel" value="interface" spellcheck="false" autocomplete="off">
+            </label>
+            <label>有效期（秒，留空为长期有效）
+              <input id="issueTtl" type="number" min="1" step="1" placeholder="留空" spellcheck="false">
+            </label>
+          </div>
+          <p class="note">按 qiuer-lite S Channel 约定：iss 与 aud 均为被调用方 service name，client_id 为调用方。这些字段会记忆在本浏览器；密钥与 Token 不会被保存。</p>
+        </div>
+
+        <div class="card">
+          <h2>私钥 <span class="hint">PKCS#8 / PKCS#1 · Base64 或 PEM · 支持拖入文件</span><span class="req">*</span></h2>
+          <textarea id="issuePrivate" rows="5" spellcheck="false"
+            placeholder="MIIEvQIBADANBgkqhkiG9w0BAQEFAASC...&#10;也可直接拖入 .pem / .der / .base64 文件"></textarea>
+          <div class="preview-label">PEM 预览</div>
+          <pre id="issuePrivatePem" class="pem">—</pre>
+        </div>
+
+        <div class="card">
+          <h2>公钥 <span class="hint">与「验证」页共用 · 可选，用于公私钥匹配校验</span></h2>
+          <textarea id="issuePublic" rows="4" spellcheck="false"
+            placeholder="MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...&#10;也可直接拖入公钥文件"></textarea>
+          <div class="preview-label">PEM 预览</div>
+          <pre id="issuePublicPem" class="pem">—</pre>
+        </div>
+
+        <button id="btnIssue" class="primary" type="button">颁发 Token</button>
+        <div id="issueStatus" class="status"></div>
+      </div>
+
+      <div class="col">
+        <div class="card">
+          <h2>Token</h2>
+          <textarea id="issueToken" rows="8" readonly placeholder="颁发后显示"></textarea>
+          <div class="btn-row">
+            <button id="btnCopyIssue" class="ghost" type="button">复制 Token</button>
+            <span id="copyIssueStatus" class="status"></span>
+          </div>
+        </div>
+        <div class="card">
+          <h2>解码</h2>
+          <div class="preview-label">Header</div>
+          <pre id="issueHeader" class="json">—</pre>
+          <div class="preview-label">Payload</div>
+          <pre id="issuePayload" class="json">—</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════ 验证 ══════════════ -->
+    <section id="panel-verify" class="panel split">
+      <div class="col">
+        <div class="card">
+          <h2>Token</h2>
+          <textarea id="verifyToken" rows="9" spellcheck="false"
+            placeholder="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOi..."></textarea>
+          <p class="note">可直接粘贴带 <code>Bearer</code> 前缀的整段凭证，会自动去除。</p>
+        </div>
+        <div class="card">
+          <h2>解码</h2>
+          <div class="preview-label">Header</div>
+          <pre id="verifyHeader" class="json">—</pre>
+          <div class="preview-label">Payload</div>
+          <pre id="verifyPayload" class="json">—</pre>
+        </div>
+      </div>
+
+      <div class="col">
+        <div class="card">
+          <h2>公钥 <span class="hint">与「颁发」页共用 · 公钥或私钥均可，私钥会自动推导</span></h2>
+          <textarea id="verifyKey" rows="7" spellcheck="false"
+            placeholder="MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...&#10;也可直接拖入公钥/私钥文件"></textarea>
+          <div class="preview-label">PEM 预览</div>
+          <pre id="verifyKeyPem" class="pem">—</pre>
+          <button id="btnVerify" class="primary" type="button" style="margin-top:12px">验证签名</button>
+          <div id="verifyVerdict" hidden></div>
+          <div id="verifyMeta" class="meta"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════ 生成密钥 ══════════════ -->
+    <section id="panel-generate" class="panel">
+      <div class="card">
+        <h2>生成 RSA 2048 密钥对</h2>
+        <p class="note">按 access-data S Channel 约定，签名算法为 RS256，密钥为 RSA 2048。生成后自动同步到「颁发」与「验证」页；私钥不会保存到浏览器，刷新后即丢失，请及时复制留存。</p>
+        <div class="btn-row">
+          <button id="btnGenerate" class="primary" type="button">生成新密钥对</button>
+          <span id="genStatus" class="status"></span>
+        </div>
+      </div>
+
+      <div class="split2">
+        <div class="card">
+          <h2>私钥 <span class="hint">PKCS#8 · 与「颁发」页共用</span></h2>
+          <textarea id="genPrivate" rows="4" spellcheck="false"
+            placeholder="点击上方按钮生成，或粘贴 / 拖入已有私钥"></textarea>
+          <div class="preview-label">PEM</div>
+          <pre id="genPrivatePem" class="pem">—</pre>
+          <div class="btn-row">
+            <button id="btnCopyGenPrivate" class="ghost" type="button">复制 PEM</button>
+            <span id="genPrivateCopyStatus" class="status"></span>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>公钥 <span class="hint">SPKI · 与「颁发」「验证」页共用</span></h2>
+          <textarea id="genPublic" rows="4" spellcheck="false"
+            placeholder="与私钥成对生成，也可拖入已有公钥文件"></textarea>
+          <div class="preview-label">PEM</div>
+          <pre id="genPublicPem" class="pem">—</pre>
+          <div class="btn-row">
+            <button id="btnCopyGenPublic" class="ghost" type="button">复制 PEM</button>
+            <span id="genPublicCopyStatus" class="status"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script id="app-script">
+(function () {
+  'use strict';
+
+  /* ══════════════════════════════════════════════════════════
+     基础工具
+     ══════════════════════════════════════════════════════════ */
+  var encoder = new TextEncoder();
+  var decoder = new TextDecoder();
+
+  function $(id) { return document.getElementById(id); }
+
+  function esc(str) {
+    return String(str).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function bytesToB64(bytes) {
+    var bin = '';
+    for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  }
+
+  function b64ToBytes(b64) {
+    var bin = atob(b64);
+    var out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  function bytesToB64url(bytes) {
+    return bytesToB64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function strToB64url(str) {
+    return bytesToB64url(encoder.encode(str));
+  }
+
+  function b64urlToBytes(value) {
+    var s = value.replace(/-/g, '+').replace(/_/g, '/');
+    var pad = s.length % 4;
+    if (pad) s += new Array(5 - pad).join('=');
+    return b64ToBytes(s);
+  }
+
+  function bytesEqual(a, b) {
+    if (!a || !b || a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    return true;
+  }
+
+  /* ── JSON 着色（逐片段转义，避免破坏正则匹配） ── */
+  var JSON_TOKEN = /("(?:\\.|[^"\\])*")(\s*:)?|\b(?:true|false|null)\b|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
+
+  function highlightJson(value) {
+    var text = JSON.stringify(value, null, 2);
+    var out = '';
+    var last = 0;
+    var m;
+    JSON_TOKEN.lastIndex = 0;
+    while ((m = JSON_TOKEN.exec(text)) !== null) {
+      out += esc(text.slice(last, m.index));
+      if (m[1] !== undefined) {
+        var isKey = m[2] !== undefined;
+        out += '<span class="j-' + (isKey ? 'key' : 'str') + '">' + esc(m[1]) + '</span>';
+        if (isKey) out += esc(m[2]);
+      } else {
+        var literal = m[0];
+        var cls = literal === 'true' || literal === 'false' ? 'bool'
+          : literal === 'null' ? 'null' : 'num';
+        out += '<span class="j-' + cls + '">' + esc(literal) + '</span>';
+      }
+      last = JSON_TOKEN.lastIndex;
+    }
+    out += esc(text.slice(last));
+    return out;
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     DER / ASN.1 最小实现
+     ══════════════════════════════════════════════════════════ */
+  function readTlv(bytes, offset) {
+    if (offset + 2 > bytes.length) throw new Error('DER 结构不完整');
+    var tag = bytes[offset];
+    var len = bytes[offset + 1];
+    var headerLen = 2;
+    if (len & 0x80) {
+      var n = len & 0x7f;
+      if (n === 0 || n > 4) throw new Error('DER 长度字段非法');
+      len = 0;
+      for (var i = 0; i < n; i++) len = len * 256 + bytes[offset + 2 + i];
+      headerLen = 2 + n;
+    }
+    if (offset + headerLen + len > bytes.length) throw new Error('DER 长度超出数据范围');
+    return { tag: tag, len: len, headerLen: headerLen, valueOffset: offset + headerLen };
+  }
+
+  function derEncodeLen(n) {
+    if (n < 0x80) return Uint8Array.of(n);
+    var parts = [];
+    var v = n;
+    while (v > 0) { parts.unshift(v & 0xff); v = Math.floor(v / 256); }
+    return Uint8Array.of(0x80 | parts.length, ...parts);
+  }
+
+  function concatBytes() {
+    var total = 0;
+    for (var i = 0; i < arguments.length; i++) total += arguments[i].length;
+    var out = new Uint8Array(total);
+    var o = 0;
+    for (var j = 0; j < arguments.length; j++) { out.set(arguments[j], o); o += arguments[j].length; }
+    return out;
+  }
+
+  function derTagged(tag, body) {
+    return concatBytes(Uint8Array.of(tag), derEncodeLen(body.length), body);
+  }
+
+  function derSequence() {
+    var body = concatBytes.apply(null, arguments);
+    return concatBytes(Uint8Array.of(0x30), derEncodeLen(body.length), body);
+  }
+
+  function derInteger(bytes) {
+    // 最高位为 1 时补前导 0，保证解析为正整数
+    return derTagged(0x02, (bytes[0] & 0x80) ? concatBytes(Uint8Array.of(0x00), bytes) : bytes);
+  }
+
+  // AlgorithmIdentifier { rsaEncryption, NULL }
+  var RSA_ALG_ID = Uint8Array.of(
+    0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7,
+    0x0d, 0x01, 0x01, 0x01, 0x05, 0x00
+  );
+
+  function pkcs1PrivateToPkcs8(pkcs1) {
+    return derSequence(derInteger(Uint8Array.of(0)), RSA_ALG_ID, derTagged(0x04, pkcs1));
+  }
+
+  function pkcs1PublicToSpki(pkcs1) {
+    return derSequence(RSA_ALG_ID, derTagged(0x03, concatBytes(Uint8Array.of(0x00), pkcs1)));
+  }
+
+  function jwkToSpki(jwk) {
+    var modulus = b64urlToBytes(jwk.n);
+    var exponent = b64urlToBytes(jwk.e);
+    return pkcs1PublicToSpki(derSequence(derInteger(modulus), derInteger(exponent)));
+  }
+
+  /* ── 判定 DER 的密钥类型 ── */
+  function classifyDer(bytes) {
+    var seq = readTlv(bytes, 0);
+    if (seq.tag !== 0x30) return 'unknown';
+    var a = readTlv(bytes, seq.valueOffset);
+    if (a.tag === 0x30 || a.tag === 0x03) return 'spki';
+    if (a.tag !== 0x02) return 'unknown';
+    var b = readTlv(bytes, a.valueOffset + a.len);
+    if (b.tag === 0x30) return 'pkcs8';
+    if (b.tag !== 0x02) return 'unknown';
+    if (a.len === 1 && bytes[a.valueOffset] === 0) return 'pkcs1-private';
+    var endsAt = b.valueOffset + b.len;
+    return endsAt === seq.valueOffset + seq.len ? 'pkcs1-public' : 'pkcs1-private';
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     密钥解析：Base64 / PEM → 标准化 SPKI 或 PKCS#8
+     ══════════════════════════════════════════════════════════ */
+  var KIND_LABEL = {
+    'spki': 'SPKI 公钥',
+    'pkcs1-public': 'PKCS#1 公钥',
+    'pkcs8': 'PKCS#8 私钥',
+    'pkcs1-private': 'PKCS#1 私钥'
+  };
+
+  function pemWrap(b64, label) {
+    var lines = b64.match(/.{1,64}/g) || [''];
+    return '-----BEGIN ' + label + '-----\n' + lines.join('\n') + '\n-----END ' + label + '-----';
+  }
+
+  /**
+   * 同步解析，返回：
+   *   kind       原始 DER 类型
+   *   isPrivate  是否私钥
+   *   spki       SPKI DER（公钥场景，可能由 PKCS#1 转换而来）
+   *   pkcs8      PKCS#8 DER（私钥场景，可能由 PKCS#1 转换而来）
+   *   pem        标准化后的 PEM 文本
+   *   source     原始格式说明
+   *   converted  是否发生过格式转换
+   */
+  function parseKey(raw) {
+    var text = String(raw || '').trim();
+    if (!text) throw new Error('内容为空');
+
+    var m = text.match(/-----BEGIN ([A-Z0-9 ]+)-----/);
+    var sourceLabel = m ? m[1] : null;
+
+    var b64 = text
+      .replace(/-----BEGIN [^-]+-----/g, '')
+      .replace(/-----END [^-]+-----/g, '')
+      .replace(/\s+/g, '');
+    if (!b64) throw new Error('未找到 Base64 / DER 内容');
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) throw new Error('包含非法字符，不是合法的 Base64');
+    if (b64.length % 4 === 1) throw new Error('Base64 长度非法');
+
+    var der = b64ToBytes(b64);
+    var kind = classifyDer(der);
+    if (kind === 'unknown') throw new Error('无法识别的密钥结构（支持 PKCS#8 / PKCS#1 / SPKI）');
+
+    var isPrivate = kind === 'pkcs8' || kind === 'pkcs1-private';
+    var spki = null;
+    var pkcs8 = null;
+    var converted = false;
+
+    if (kind === 'spki') {
+      spki = der;
+    } else if (kind === 'pkcs1-public') {
+      spki = pkcs1PublicToSpki(der);
+      converted = true;
+    } else if (kind === 'pkcs8') {
+      pkcs8 = der;
+    } else {
+      pkcs8 = pkcs1PrivateToPkcs8(der);
+      converted = true;
+    }
+
+    var pem = isPrivate
+      ? pemWrap(bytesToB64(pkcs8), 'PRIVATE KEY')
+      : pemWrap(bytesToB64(spki), 'PUBLIC KEY');
+
+    var source = KIND_LABEL[kind] + (sourceLabel ? '（PEM 标记：' + sourceLabel + '）' : '（无 PEM 头尾）');
+    if (converted) source += ' → 已转换为 ' + (isPrivate ? 'PKCS#8' : 'SPKI');
+
+    return {
+      kind: kind, isPrivate: isPrivate, spki: spki, pkcs8: pkcs8,
+      pem: pem, source: source, converted: converted
+    };
+  }
+
+  var RSA_ALG = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' };
+  var subtle = (window.crypto && window.crypto.subtle) || null;
+
+  function requireCrypto() {
+    if (!subtle) throw new Error('当前环境不支持 Web Crypto（crypto.subtle），请通过 http://localhost 打开本页');
+  }
+
+  async function loadPrivateKey(raw) {
+    requireCrypto();
+    var parsed = parseKey(raw);
+    if (!parsed.pkcs8) {
+      throw new Error('识别为' + KIND_LABEL[parsed.kind] + '，此处需要私钥（PRIVATE KEY / RSA PRIVATE KEY）');
+    }
+    var key = await subtle.importKey('pkcs8', parsed.pkcs8, RSA_ALG, true, ['sign']);
+    var spki = parsed.spki || jwkToSpki(await subtle.exportKey('jwk', key));
+    return {
+      key: key,
+      spki: spki,
+      privatePem: parsed.pem,
+      publicPem: pemWrap(bytesToB64(spki), 'PUBLIC KEY'),
+      source: parsed.source
+    };
+  }
+
+  async function loadPublicKey(raw) {
+    requireCrypto();
+    var parsed = parseKey(raw);
+    var spki = parsed.spki;
+    var derived = false;
+    if (!spki) {
+      var priv = await subtle.importKey('pkcs8', parsed.pkcs8, RSA_ALG, true, ['sign']);
+      spki = jwkToSpki(await subtle.exportKey('jwk', priv));
+      derived = true;
+    }
+    var key = await subtle.importKey('spki', spki, RSA_ALG, true, ['verify']);
+    return {
+      key: key,
+      spki: spki,
+      pem: pemWrap(bytesToB64(spki), 'PUBLIC KEY'),
+      derived: derived,
+      source: parsed.source
+    };
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     公共 UI 行为
+     ══════════════════════════════════════════════════════════ */
+  function setStatus(node, message, kind) {
+    node.textContent = message || '';
+    node.className = 'status' + (kind ? ' ' + kind : '');
+  }
+
+  function bindPemPreview(textarea, preview) {
+    function render() {
+      var raw = textarea.value.trim();
+      if (!raw) {
+        preview.textContent = '—';
+        preview.classList.remove('err');
+        return;
+      }
+      try {
+        var parsed = parseKey(raw);
+        preview.textContent = parsed.source + '\n\n' + parsed.pem;
+        preview.classList.remove('err');
+      } catch (e) {
+        preview.textContent = '解析失败：' + e.message;
+        preview.classList.add('err');
+      }
+    }
+    textarea.addEventListener('input', render);
+    render();
+  }
+
+  function copyText(text, statusNode) {
+    if (!text) { setStatus(statusNode, '没有可复制的内容', 'err'); return; }
+    function done() { setStatus(statusNode, '已复制', 'ok'); setTimeout(function () { setStatus(statusNode, ''); }, 1600); }
+    function fallback() {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); done(); }
+      catch (e) { setStatus(statusNode, '复制失败，请手动选择', 'err'); }
+      document.body.removeChild(ta);
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(done, fallback);
+    } else {
+      fallback();
+    }
+  }
+
+  function decodeSegment(segment, name) {
+    try {
+      return JSON.parse(decoder.decode(b64urlToBytes(segment)));
+    } catch (e) {
+      throw new Error(name + ' 不是合法 JSON');
+    }
+  }
+
+  function normalizeToken(raw) {
+    return String(raw || '').trim().replace(/^Bearer\s+/i, '').replace(/\s+/g, '');
+  }
+
+  function renderSegments(token, headerNode, payloadNode) {
+    var clean = normalizeToken(token);
+    if (!clean) {
+      headerNode.textContent = '—';
+      payloadNode.textContent = '—';
+      return null;
+    }
+    var parts = clean.split('.');
+    if (parts.length !== 3) {
+      headerNode.textContent = 'Token 不是三段式 JWT';
+      payloadNode.textContent = '—';
+      return null;
+    }
+    try {
+      var header = decodeSegment(parts[0], 'Header');
+      var payload = decodeSegment(parts[1], 'Payload');
+      headerNode.innerHTML = highlightJson(header);
+      payloadNode.innerHTML = highlightJson(payload);
+      return { header: header, payload: payload, parts: parts };
+    } catch (e) {
+      headerNode.textContent = e.message;
+      payloadNode.textContent = '—';
+      return null;
+    }
+  }
+
+  function formatTime(seconds) {
+    if (typeof seconds !== 'number' || !isFinite(seconds)) return '—';
+    var d = new Date(seconds * 1000);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleString('zh-CN', { hour12: false });
+  }
+
+  /* ── Tabs ── */
+  Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (btn) {
+    btn.addEventListener('click', function () {
+      Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
+        b.classList.toggle('active', b === btn);
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('.panel'), function (p) {
+        p.classList.toggle('active', p.id === 'panel-' + btn.dataset.tab);
+      });
+    });
+  });
+
+  /* ══════════════════════════════════════════════════════════
+     颁发
+     ══════════════════════════════════════════════════════════ */
+  bindPemPreview($('issuePrivate'), $('issuePrivatePem'));
+  bindPemPreview($('issuePublic'), $('issuePublicPem'));
+
+  function validateIdentifier(label, value) {
+    if (!value) throw new Error(label + ' 不能为空');
+    if (/[,\u0000-\u001F\u007F-\u009F]/.test(value)) {
+      throw new Error(label + ' 不能包含逗号或控制字符');
+    }
+    return value;
+  }
+
+  async function issueToken() {
+    var statusNode = $('issueStatus');
+    setStatus(statusNode, '处理中…');
+
+    try {
+      requireCrypto();
+
+      var clientId = validateIdentifier('调用方 service name',
+        $('issueClientId').value.trim());
+      var audience = validateIdentifier('被调用方 service name',
+        $('issueAudience').value.trim());
+      var channelId = validateIdentifier('Channel ID',
+        $('issueChannel').value.trim() || 'interface');
+
+      var ttlText = $('issueTtl').value.trim();
+      var ttl = null;
+      if (ttlText) {
+        ttl = Number(ttlText);
+        if (!Number.isFinite(ttl) || ttl <= 0 || Math.floor(ttl) !== ttl) {
+          throw new Error('有效期必须是正整数秒');
+        }
+      }
+
+      var priv = await loadPrivateKey($('issuePrivate').value);
+
+      // 若提供公钥，先做匹配校验
+      var pubRaw = $('issuePublic').value.trim();
+      if (pubRaw) {
+        var pub = await loadPublicKey(pubRaw);
+        if (!bytesEqual(pub.spki, priv.spki)) {
+          throw new Error('公钥与私钥不匹配，请检查是否来自同一密钥对');
+        }
+      }
+
+      var iat = Math.floor(Date.now() / 1000);
+      var header = { alg: 'RS256', typ: 'JWT' };
+      var payload = {
+        iss: audience,
+        aud: audience,
+        client_id: clientId,
+        channel_id: channelId,
+        iat: iat
+      };
+      if (ttl !== null) payload.exp = iat + ttl;
+
+      var signingInput = strToB64url(JSON.stringify(header)) + '.' +
+        strToB64url(JSON.stringify(payload));
+      var signature = await subtle.sign('RSASSA-PKCS1-v1_5', priv.key, encoder.encode(signingInput));
+      var token = signingInput + '.' + bytesToB64url(new Uint8Array(signature));
+
+      // 自检：用公钥回验
+      var verifyKey = await subtle.importKey('spki', priv.spki, RSA_ALG, true, ['verify']);
+      var selfCheck = await subtle.verify(
+        'RSASSA-PKCS1-v1_5', verifyKey, new Uint8Array(signature), encoder.encode(signingInput)
+      );
+      if (!selfCheck) throw new Error('签名自检失败');
+
+      $('issueToken').value = token;
+      renderSegments(token, $('issueHeader'), $('issuePayload'));
+
+      // 顺带填入验证页，方便立即校验
+      $('verifyToken').value = token;
+      renderSegments(token, $('verifyHeader'), $('verifyPayload'));
+
+      var expires = ttl !== null ? '，exp=' + (iat + ttl) + '（' + formatTime(iat + ttl) + '）' : '，无 exp（长期有效）';
+      setStatus(statusNode, '颁发成功 · 签名自检通过 · iat=' + iat + expires, 'ok');
+      scheduleVerify();
+    } catch (e) {
+      setStatus(statusNode, '颁发失败：' + e.message, 'err');
+    }
+  }
+
+  $('btnIssue').addEventListener('click', issueToken);
+
+  $('btnCopyIssue').addEventListener('click', function () {
+    copyText($('issueToken').value.trim(), $('copyIssueStatus'));
+  });
+
+  /* ── 声明记忆：应用名与 Channel 持久化到 localStorage（不含密钥/Token） ── */
+  (function rememberDeclarations() {
+    var STORAGE_KEY = 'jwt-tool.declarations.v1';
+    var FIELDS = ['issueClientId', 'issueAudience', 'issueChannel'];
+
+    function loadSaved() {
+      var raw;
+      try {
+        raw = localStorage.getItem(STORAGE_KEY);
+      } catch (e) {
+        return; // 存储被禁用时静默降级
+      }
+      if (!raw) return;
+      var saved;
+      try {
+        saved = JSON.parse(raw);
+      } catch (e) {
+        return;
+      }
+      FIELDS.forEach(function (id) {
+        if (saved && typeof saved[id] === 'string') $(id).value = saved[id];
+      });
+    }
+
+    var saveTimer = null;
+    function save() {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(function () {
+        var payload = {};
+        FIELDS.forEach(function (id) { payload[id] = $(id).value; });
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+        } catch (e) {
+          // 隐私模式或配额不足时忽略
+        }
+      }, 200);
+    }
+
+    FIELDS.forEach(function (id) { $(id).addEventListener('input', save); });
+    loadSaved();
+  })();
+
+  /* ══════════════════════════════════════════════════════════
+     验证
+     ══════════════════════════════════════════════════════════ */
+  bindPemPreview($('verifyKey'), $('verifyKeyPem'));
+
+  /* ══════════════════════════════════════════════════════════
+     生成密钥
+     ══════════════════════════════════════════════════════════ */
+  bindPemPreview($('genPrivate'), $('genPrivatePem'));
+  bindPemPreview($('genPublic'), $('genPublicPem'));
+
+  async function generateKeyPair() {
+    var statusNode = $('genStatus');
+    setStatus(statusNode, '生成中…');
+    try {
+      requireCrypto();
+      var pair = await subtle.generateKey(
+        {
+          name: 'RSASSA-PKCS1-v1_5',
+          modulusLength: 2048,
+          publicExponent: new Uint8Array([1, 0, 1]),
+          hash: 'SHA-256'
+        },
+        true,
+        ['sign', 'verify']
+      );
+      var spki = new Uint8Array(await subtle.exportKey('spki', pair.publicKey));
+      var pkcs8 = new Uint8Array(await subtle.exportKey('pkcs8', pair.privateKey));
+
+      // 赋值后主动派发 input，交由联动逻辑同步到其他页并刷新 PEM 预览
+      $('genPrivate').value = bytesToB64(pkcs8);
+      $('genPrivate').dispatchEvent(new Event('input'));
+      $('genPublic').value = bytesToB64(spki);
+      $('genPublic').dispatchEvent(new Event('input'));
+
+      setStatus(statusNode, '已生成 RSA 2048 密钥对，并同步到「颁发」与「验证」页', 'ok');
+    } catch (e) {
+      setStatus(statusNode, '生成失败：' + e.message, 'err');
+    }
+  }
+
+  $('btnGenerate').addEventListener('click', generateKeyPair);
+
+  // 预览区首行是格式说明，复制时只取 PEM 本体
+  function copyPemFrom(previewId, statusId) {
+    var text = $(previewId).textContent || '';
+    var start = text.indexOf('-----BEGIN ');
+    if (start < 0) {
+      setStatus($(statusId), '没有可复制的 PEM', 'err');
+      return;
+    }
+    copyText(text.slice(start).trim(), $(statusId));
+  }
+
+  $('btnCopyGenPrivate').addEventListener('click', function () {
+    copyPemFrom('genPrivatePem', 'genPrivateCopyStatus');
+  });
+  $('btnCopyGenPublic').addEventListener('click', function () {
+    copyPemFrom('genPublicPem', 'genPublicCopyStatus');
+  });
+
+  /* ══════════════════════════════════════════════════════════
+     密钥联动：公钥三页共用，私钥在「颁发」与「生成」共用
+     ══════════════════════════════════════════════════════════ */
+  (function linkKeys() {
+    var syncing = false;
+
+    // 统一归一化为单行 Base64，使生成页展示的始终是可直接粘贴进配置的值
+    function normalize(raw) {
+      if (!raw || !raw.trim()) return '';
+      try {
+        var parsed = parseKey(raw);
+        return bytesToB64(parsed.isPrivate ? parsed.pkcs8 : parsed.spki);
+      } catch (e) {
+        return raw; // 解析失败时原样同步，便于继续修正
+      }
+    }
+
+    function linkGroup(ids) {
+      var nodes = ids.map(function (id) { return $(id); });
+      nodes.forEach(function (node) {
+        node.addEventListener('input', function () {
+          if (syncing) return;
+          var value = normalize(node.value);
+          syncing = true;
+          nodes.forEach(function (other) {
+            if (other === node || other.value === value) return;
+            other.value = value;
+            other.dispatchEvent(new Event('input'));
+          });
+          syncing = false;
+        });
+      });
+    }
+
+    linkGroup(['issuePublic', 'verifyKey', 'genPublic']);
+    linkGroup(['issuePrivate', 'genPrivate']);
+  })();
+
+  var verifyTimer = null;
+
+  function scheduleVerify() {
+    clearTimeout(verifyTimer);
+    verifyTimer = setTimeout(function () {
+      var token = normalizeToken($('verifyToken').value);
+      var key = $('verifyKey').value.trim();
+      if (token && key) runVerify(true);
+    }, 420);
+  }
+
+  function clearVerifyResult() {
+    var verdict = $('verifyVerdict');
+    verdict.hidden = true;
+    verdict.innerHTML = '';
+    $('verifyMeta').innerHTML = '';
+  }
+
+  async function runVerify(silent) {
+    var verdict = $('verifyVerdict');
+    var meta = $('verifyMeta');
+
+    var token = normalizeToken($('verifyToken').value);
+    var keyRaw = $('verifyKey').value.trim();
+
+    if (!token && !keyRaw) {
+      clearVerifyResult();
+      if (!silent) setVerifyVerdict(false, '请填写 Token 与公钥');
+      return;
+    }
+
+    try {
+      requireCrypto();
+      if (!token) throw new Error('请填写 Token');
+      if (!keyRaw) throw new Error('请填写公钥');
+
+      var parts = token.split('.');
+      if (parts.length !== 3) throw new Error('Token 不是三段式 JWT');
+      if (!parts[2]) throw new Error('Token 缺少签名段');
+
+      var header = decodeSegment(parts[0], 'Header');
+      var payload = decodeSegment(parts[1], 'Payload');
+
+      if (header.alg !== 'RS256') {
+        throw new Error('仅支持 RS256 验签，当前 alg=' + header.alg);
+      }
+
+      var pub = await loadPublicKey(keyRaw);
+      var ok = await subtle.verify(
+        'RSASSA-PKCS1-v1_5', pub.key,
+        b64urlToBytes(parts[2]),
+        encoder.encode(parts[0] + '.' + parts[1])
+      );
+
+      setVerifyVerdict(ok,
+        ok ? '签名验证通过' : '签名验证失败',
+        ok ? '' : 'Token 与公钥不匹配，或 Token 内容被篡改');
+
+      // 时间与 Claim 提示
+      var lines = [];
+      if (pub.derived) {
+        lines.push('<div><span class="k">公钥来源：</span>由私钥自动推导</div>');
+      }
+      lines.push('<div><span class="k">iat：</span>' + esc(String(payload.iat)) +
+        '（' + esc(formatTime(payload.iat)) + '）</div>');
+      if (payload.exp !== undefined) {
+        var expired = Date.now() / 1000 >= payload.exp;
+        lines.push('<div><span class="k">exp：</span>' + esc(String(payload.exp)) +
+          '（' + esc(formatTime(payload.exp)) + '）' +
+          (expired ? ' <span class="bad">已过期</span>' : ' <span class="good">有效</span>') + '</div>');
+      } else {
+        lines.push('<div><span class="k">exp：</span>未设置（长期有效）</div>');
+      }
+
+      // S Channel claim 完整性
+      var missing = ['iss', 'aud', 'client_id', 'channel_id']
+        .filter(function (name) { return payload[name] === undefined; });
+      if (missing.length) {
+        lines.push('<div><span class="k">Claim 提示：</span>缺少 ' + esc(missing.join(', ')) + '</div>');
+      }
+      if (payload.sub !== undefined) {
+        lines.push('<div><span class="k">Claim 提示：</span><span class="bad">S Token 不应携带 sub</span></div>');
+      }
+
+      meta.innerHTML = lines.join('');
+    } catch (e) {
+      setVerifyVerdict(false, '验证失败', e.message);
+      meta.innerHTML = '';
+    }
+  }
+
+  function setVerifyVerdict(ok, title, detail) {
+    var node = $('verifyVerdict');
+    node.hidden = false;
+    node.className = 'verdict ' + (ok ? 'ok' : 'err');
+    node.innerHTML = '<span>' + esc(title) + '</span>' +
+      (detail ? '<span class="detail">' + esc(detail) + '</span>' : '');
+  }
+
+  $('btnVerify').addEventListener('click', function () { runVerify(false); });
+
+  $('verifyToken').addEventListener('input', function () {
+    renderSegments($('verifyToken').value, $('verifyHeader'), $('verifyPayload'));
+    scheduleVerify();
+  });
+
+  $('verifyKey').addEventListener('input', scheduleVerify);
+
+  /* ══════════════════════════════════════════════════════════
+     密钥输入框支持拖入文件（PEM / Base64 文本或二进制 DER）
+     ══════════════════════════════════════════════════════════ */
+  (function enableKeyFileDrop() {
+    var DROP_TARGETS = ['issuePrivate', 'issuePublic', 'verifyKey', 'genPrivate', 'genPublic'];
+    var MAX_BYTES = 1024 * 1024;
+
+    function looksLikeText(text) {
+      var trimmed = text.trim();
+      if (!trimmed) return false;
+      if (/-----BEGIN [A-Z0-9 ]+-----/.test(trimmed)) return true;
+      return /^[A-Za-z0-9+/=\r\n\t ]+$/.test(trimmed);
+    }
+
+    function readAsKeyText(file) {
+      return new Promise(function (resolve, reject) {
+        var reader = new FileReader();
+        reader.onerror = function () { reject(new Error('文件读取失败')); };
+        reader.onload = function () {
+          var bytes = new Uint8Array(reader.result);
+          var text = '';
+          try {
+            text = new TextDecoder('utf-8').decode(bytes);
+          } catch (e) {
+            text = '';
+          }
+          // 文本文件（PEM / Base64）原样使用；二进制 DER 转为单行 Base64
+          resolve(looksLikeText(text) ? text.trim() : bytesToB64(bytes));
+        };
+        reader.readAsArrayBuffer(file);
+      });
+    }
+
+    function hasFiles(event) {
+      var dt = event.dataTransfer;
+      if (!dt) return false;
+      if (dt.files && dt.files.length) return true;
+      return Array.prototype.indexOf.call(dt.types || [], 'Files') >= 0;
+    }
+
+    function flash(node, className) {
+      node.classList.add(className);
+      setTimeout(function () { node.classList.remove(className); }, 650);
+    }
+
+    DROP_TARGETS.forEach(function (id) {
+      var node = $(id);
+      if (!node) return;
+
+      node.addEventListener('dragover', function (event) {
+        if (!hasFiles(event)) return; // 纯文本拖拽保留浏览器默认行为
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+      });
+
+      node.addEventListener('dragenter', function (event) {
+        if (!hasFiles(event)) return;
+        event.preventDefault();
+        node.classList.add('dropping');
+      });
+
+      node.addEventListener('dragleave', function () {
+        node.classList.remove('dropping');
+      });
+
+      node.addEventListener('drop', function (event) {
+        if (!hasFiles(event)) return;
+        event.preventDefault();
+        node.classList.remove('dropping');
+
+        var file = event.dataTransfer.files[0];
+        if (!file) return;
+        if (file.size > MAX_BYTES) {
+          flash(node, 'drop-error');
+          return;
+        }
+
+        readAsKeyText(file).then(function (text) {
+          if (!text) {
+            flash(node, 'drop-error');
+            return;
+          }
+          node.value = text;
+          // 复用既有监听链：PEM 预览、密钥联动、自动验签
+          node.dispatchEvent(new Event('input'));
+          flash(node, 'dropped');
+        }).catch(function () {
+          flash(node, 'drop-error');
+        });
+      });
+    });
+
+    // 拖到输入框以外时，阻止浏览器直接打开文件
+    ['dragover', 'drop'].forEach(function (type) {
+      document.addEventListener(type, function (event) {
+        var dt = event.dataTransfer;
+        if (dt && dt.types && Array.prototype.indexOf.call(dt.types, 'Files') >= 0) {
+          event.preventDefault();
+        }
+      });
+    });
+  })();
+
+  /* ══════════════════════════════════════════════════════════
+     主题：深色 / 跟随系统 / 浅色（默认跟随系统）
+     ══════════════════════════════════════════════════════════ */
+  (function themeController() {
+    var STORAGE_KEY = 'jwt-tool.theme.v1';
+    var MODES = ['dark', 'auto', 'light'];
+    var media = typeof window.matchMedia === 'function'
+      ? window.matchMedia('(prefers-color-scheme: dark)')
+      : null;
+    var buttons = Array.prototype.slice.call(document.querySelectorAll('[data-theme-mode]'));
+    var mode = 'auto';
+
+    function resolve(m) {
+      if (m === 'dark' || m === 'light') return m;
+      return (media && media.matches) ? 'dark' : 'light';
+    }
+
+    function render() {
+      document.documentElement.setAttribute('data-theme', resolve(mode));
+      buttons.forEach(function (btn) {
+        var on = btn.dataset.themeMode === mode;
+        btn.classList.toggle('active', on);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+    }
+
+    function load() {
+      try {
+        var saved = localStorage.getItem(STORAGE_KEY);
+        if (MODES.indexOf(saved) >= 0) mode = saved;
+      } catch (e) {
+        // 存储不可用时保持默认 auto
+      }
+    }
+
+    buttons.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        mode = btn.dataset.themeMode || 'auto';
+        try {
+          localStorage.setItem(STORAGE_KEY, mode);
+        } catch (e) {
+          // 忽略写入失败，仅当前会话生效
+        }
+        render();
+      });
+    });
+
+    // 跟随系统时，实时响应系统深浅色切换
+    if (media) {
+      var onSystemChange = function () {
+        if (mode === 'auto') render();
+      };
+      if (typeof media.addEventListener === 'function') {
+        media.addEventListener('change', onSystemChange);
+      } else if (typeof media.addListener === 'function') {
+        media.addListener(onSystemChange);
+      }
+    }
+
+    load();
+    render();
+  })();
+
+  /* ══════════════════════════════════════════════════════════
+     启动自检
+     ══════════════════════════════════════════════════════════ */
+  (function checkEnvironment() {
+    if (window.isSecureContext && subtle) return;
+    var banner = $('envWarn');
+    banner.hidden = false;
+    banner.innerHTML = '当前页面环境不支持 Web Crypto（<code>crypto.subtle</code>），签名与验签不可用。' +
+      '请通过本地 HTTP 服务打开，例如在本目录执行 <code>python -m http.server 8000</code>，' +
+      '然后访问 <code>http://localhost:8000/jwt-tool.html</code>。';
+  })();
+})();
+</script>
+</body>
+</html>
